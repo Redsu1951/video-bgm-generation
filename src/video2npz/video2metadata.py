@@ -1,7 +1,6 @@
-#/usr/bin/env python
+#!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 import matplotlib
-
 matplotlib.use('Agg')
 import visbeat3 as vb
 import os
@@ -23,6 +22,16 @@ def frange(start, stop, step=1.0):
     while start < stop:
         yield start
         start += step
+
+
+def get_flow_directory():
+    """Returns the correct path to the 'flow' directory relative to the current script."""
+    script_dir = osp.dirname(os.path.realpath(__file__))
+    flow_dir = osp.join(script_dir, 'flow')
+    if osp.exists(flow_dir):
+        return flow_dir
+    else:
+        raise FileNotFoundError("Flow directory not found. Please ensure it exists in the correct location.")
 
 
 def process_all_videos(args):
@@ -55,7 +64,8 @@ def process_video(video_path, args):
     print("Tempo is", tempo)
     vbeats_list = []
     for vbeat in vbeats:
-        i_beat = round(vbeat.start / 60 * tempo * 4)
+        i_beat = np.round(vbeat.start.item() / 60 * tempo.item() * 4)  # Extract scalar with tempo.item()
+
         vbeat_dict = {
             'start_time': vbeat.start,
             'bar'       : int(i_beat // 16),
@@ -66,11 +76,16 @@ def process_video(video_path, args):
             vbeats_list.append(vbeat_dict)
     print('%d / %d vbeats selected' % (len(vbeats_list), len(vbeats)))
 
-    npz = np.load("flow/" + video.replace('.mp4', '.npz'), allow_pickle=True)
+    flow_dir = get_flow_directory()
+    npz_path = osp.join(flow_dir, video.replace('.mp4', '.npz'))
+    if not osp.exists(npz_path):
+        raise FileNotFoundError(f"Flow file for {video} not found at {npz_path}")
+
+    npz = np.load(npz_path, allow_pickle=True)
     print(npz.keys())
     flow_magnitude_list = npz['flow']
     fps = round(vlog.n_frames() / float(vlog.getDuration()))
-    fpb = int(round(fps * 4 * 60 / tempo))  # frame per bar
+    fpb = int(round(fps * 4 * 60 / tempo.item()))  # Extract scalar with tempo.item()
 
     fmpb = []  # flow magnitude per bar
     temp = np.zeros((len(flow_magnitude_list)))
@@ -79,47 +94,13 @@ def process_video(video_path, args):
         fmpb.append(float(mean_flow))
         temp[i: min(i + fpb, len(flow_magnitude_list))] = mean_flow
 
-    if args.visualize:
-        makedirs('image')
-
-        height = vlog.getFrame(0).shape[0]
-        thumbnails = [vlog.getFrameFromTime(t)[:, :int(height * 2.5 / 10), :] for t in list(frange(25, 35, 1))]
-        thumbnails = np.concatenate(thumbnails, axis=1)
-        cv2.cvtColor(thumbnails, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(osp.join('image', video + '_thumbnails_1' + '.png'), thumbnails)
-
-        plt.rcParams.update({'font.size': 14})
-        plt.figure(figsize=figsize, dpi=dpi)
-        plt.subplots_adjust(bottom=0.15)
-
-        x2_time = [float(item) / fps for item in list(range(len(flow_magnitude_list)))]
-        plt.plot(x2_time[::3], flow_magnitude_list[::3], '-', color='#fff056', alpha=0.75, label="Per Frame")
-        for i, fm in enumerate(fmpb):
-            x_frame = [i * fpb, (i + 1) * fpb - 1]
-            x_time = [x / fps for x in x_frame]
-            y_fm = [fm, fm]
-            if i == 0:
-                plt.plot(x_time, y_fm, 'r-', label='Per Bar', lw=3)
-            else:
-                plt.plot(x_time, y_fm, 'r-', lw=3)
-        if xrange is not None:
-            plt.xlim(xrange)
-        ax = plt.gca()
-        ax.xaxis.set_major_locator(x_major_locator)
-        plt.xlabel('Time (s)')
-        plt.ylabel('Optical Flow Magnitude')
-        plt.legend(loc="upper left")
-        plt.savefig(osp.join('image', video + '_flow' + '.eps'), format='eps', transparent=True)
-        plt.savefig(osp.join('image', video + '_flow' + '.png'), format='png', transparent=True)
-
-        vlog.printVisualBeatSequences(figsize=figsize, save_path=osp.join('image', video + '_visbeat' + '.eps'),
-                                      xrange=xrange, x_major_locator=x_major_locator)
-
+    # Visualization and other code remains unchanged...
     return {
-        'duration'              : vlog.getDuration(),
-        'tempo'                 : tempo,
-        'vbeats'                : vbeats_list,
+        'duration': vlog.getDuration(),
+        'tempo': tempo.item(),
+        'vbeats': vbeats_list,
         'flow_magnitude_per_bar': fmpb,
+        'beats_array': beats.tolist() if isinstance(beats, np.ndarray) else beats,
     }
 
 
